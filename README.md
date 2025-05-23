@@ -3,7 +3,8 @@ Use this command to install or remove an FTP server configured for Kiloview Cube
 
 
 
-curl -sSL https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/kiloview_ftp_easysetup_or_cleanup_v3.sh | bash
+bash -i <(curl -sSL https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/kiloview_ftp_easysetup_or_cleanup_v3.sh)
+
 
 
 🟢 Works on Ubuntu 20.04/22.04 – cloud or local VPS
