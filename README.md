@@ -8,5 +8,7 @@ bash -i <(curl -sSL https://raw.githubusercontent.com/simonemessina92/FTP-server
 
 
 🟢 Works on Ubuntu 20.04/22.04 – cloud or local VPS
+
 📄 Saves configuration summary in /home/[user]/ftp/ftp_config_summary.txt
+
 ❌ Includes full cleanup mode
