@@ -16,3 +16,4 @@ bash -i <(curl -sSL https://raw.githubusercontent.com/simonemessina92/FTP-server
 
 You can also use this updated version with NGNIX cloud easy download using the following line :
 
+bash -i <(curl -sSL https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/FTP%2Bnginx-cloud)
