@@ -1,0 +1,110 @@
+#!/bin/bash
+#
+# Kiloview R1 – FTP  +  Nginx auto-index Web GUI
+# Install / Remove (ENG comments) – Simone Messina
+# ------------------------------------------------
+# 1) Install / Update
+# 2) Remove (optional backup)
+# ------------------------------------------------
+
+set -e
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+ask(){ read -rp "$1" "$2"; }
+
+backup_uploads() {
+  BK="/root/FTP_BackUP_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$BK"
+  cp -r /home/*/ftp/uploads/* "$BK/" 2>/dev/null || true
+  echo -e "${GREEN}Backup saved to $BK${NC}"
+}
+
+remove_all() {
+  echo -e "${YELLOW}Stopping Nginx…${NC}"
+  systemctl stop nginx 2>/dev/null || true
+  rm -f /etc/nginx/sites-enabled/ftpweb.conf \
+        /etc/nginx/sites-available/ftpweb.conf \
+        /etc/nginx/snippets/autoindex.conf
+  systemctl reload nginx 2>/dev/null || true
+
+  echo -e "${YELLOW}Removing vsftpd & FTP users…${NC}"
+  for u in $(ls /home 2>/dev/null); do
+    id "$u" &>/dev/null && userdel -r "$u" 2>/dev/null && echo " – removed $u"
+  done
+  apt-get remove -y nginx nginx-common vsftpd ssl-cert &>/dev/null || true
+  apt-get autoremove -y &>/dev/null || true
+  echo -e "${GREEN}Cleanup complete.${NC}"
+  exit 0
+}
+
+# ─── MENU ────────────────────────────────────────
+clear
+echo -e "${GREEN}Kiloview FTP + Nginx auto-index helper${NC}\n"
+echo "1) Install / Update"
+echo "2) Remove (with optional backup)"
+ask "Choice [1/2]: " MAIN
+if [[ "$MAIN" == "2" ]]; then
+  ask "Backup recordings before removal? (yes/no): " BK
+  [[ "$BK" =~ ^([yY][eE][sS]|[yY])$ ]] && backup_uploads
+  remove_all
+fi
+
+# ─── INSTALL ─────────────────────────────────────
+ask "FTP username : " FTP_USER
+ask "FTP password : " FTP_PASS
+ask "Web port (default 8080): " WEB_PORT; WEB_PORT=${WEB_PORT:-8080}
+
+echo -e "${RED}Avoid PASV 30000-30200 (Kilolink Pro).${NC}"
+ask "Use default PASV 20000-20200? (yes/no): " DEF_PASV
+PASV_MIN=20000; PASV_MAX=20200
+[[ ! "$DEF_PASV" =~ ^([yY][eE][sS]|[yY])$ ]] && { ask "PASV min: " PASV_MIN; ask "PASV max: " PASV_MAX; }
+
+IP=$(curl -s ifconfig.me)
+
+# user & dirs
+adduser --disabled-password --gecos "" "$FTP_USER" 2>/dev/null || true
+echo "$FTP_USER:$FTP_PASS" | chpasswd
+mkdir -p /home/$FTP_USER/ftp/uploads
+echo placeholder >/home/$FTP_USER/ftp/uploads/.keep
+chmod 755 /home/$FTP_USER/ftp
+chown -R $FTP_USER:$FTP_USER /home/$FTP_USER/ftp
+
+# vsftpd
+apt-get update -qq
+apt-get install -y vsftpd ssl-cert curl nginx
+
+cat >/etc/vsftpd.conf <<EOF
+listen=YES
+listen_ipv6=NO
+anonymous_enable=NO
+local_enable=YES
+write_enable=YES
+local_umask=022
+chroot_local_user=YES
+allow_writeable_chroot=YES
+pasv_enable=YES
+pasv_min_port=$PASV_MIN
+pasv_max_port=$PASV_MAX
+user_sub_token=\$USER
+local_root=/home/\$USER/ftp
+pasv_address=$IP
+pasv_addr_resolve=NO
+EOF
+systemctl restart vsftpd
+
+# nginx auto-index
+printf "autoindex on;\n" >/etc/nginx/snippets/autoindex.conf
+cat >/etc/nginx/sites-available/ftpweb.conf <<EOF
+server {
+    listen $WEB_PORT default_server;
+    server_name _;
+    root /home/$FTP_USER/ftp/uploads;
+    include snippets/autoindex.conf;
+}
+EOF
+ln -sf /etc/nginx/sites-available/ftpweb.conf /etc/nginx/sites-enabled/
+systemctl reload nginx
+
+# summary
+echo -e "\n${GREEN}✅ Install complete${NC}"
+echo "FTP : $FTP_USER / (your password)  on ftp://$IP"
+echo -e "Web : ${YELLOW}http://$IP:$WEB_PORT${NC}  (auto-index)"
