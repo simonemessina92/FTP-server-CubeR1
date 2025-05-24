@@ -12,3 +12,7 @@ bash -i <(curl -sSL https://raw.githubusercontent.com/simonemessina92/FTP-server
 📄 Saves configuration summary in /home/[user]/ftp/ftp_config_summary.txt
 
 ❌ Includes full cleanup mode
+
+
+You can also use this updated version with NGNIX cloud easy download using the following line :
+
