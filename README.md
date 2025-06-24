@@ -8,6 +8,7 @@ Use this command to install or remove an FTP server configured for Kiloview Cube
 Run this on any Ubuntu 20.04+ machine:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/FTP+nginx-cloud)
+curl -s https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/FTP4KILOVIEW | bash
+
 
 
