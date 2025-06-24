@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 # === Colors ===
@@ -30,10 +31,10 @@ show_summary() {
     echo -e "📄 Summary also saved to: $OUTPUT_FILE"
 }
 
+# === INSTALL MODE ===
 if [[ "$CHOICE" == "1" ]]; then
-    read -p "FTP username : " FTP_USER
-    echo -n "FTP password : "
-    read -s FTP_PASSWORD
+    read -p "Enter your desired FTP username: " FTP_USER
+    read -s -p "Enter your desired FTP password: " FTP_PASSWORD
     echo ""
     read -p "Use default passive port range 20000–20200? (y/n): " USE_DEFAULT
     if [[ "$USE_DEFAULT" == "n" ]]; then
@@ -44,8 +45,8 @@ if [[ "$CHOICE" == "1" ]]; then
         PASV_MAX_PORT=20200
     fi
     apt update && apt install -y vsftpd
-    adduser --disabled-password --gecos "" "$FTP_USER"
-    echo "$FTP_USER:$FTP_PASSWORD" | chpasswd
+    adduser --disabled-password --gecos "" $FTP_USER
+    echo "${FTP_USER}:${FTP_PASSWORD}" | chpasswd
     mkdir -p /home/$FTP_USER/ftp/uploads
     chown nobody:nogroup /home/$FTP_USER/ftp
     chmod a-w /home/$FTP_USER/ftp
@@ -68,20 +69,19 @@ EOL
     systemctl restart vsftpd
     SERVER_IP=$(hostname -I | awk '{print $1}')
     OUTPUT_FILE="/home/$FTP_USER/ftp/ftp_config_summary.txt"
-    {
-        echo -e "FTP Settings for Kiloview Cube R1:\n"
-        echo -e "Name:             MyFTPServer"
-        echo -e "FTP Host:         $SERVER_IP"
-        echo -e "Port:             21"
-        echo -e "Username:         $FTP_USER"
-        echo -e "Password:         (the password you chose)"
-        echo -e "Upload Directory: /uploads\n"
-        echo -e "Full server path created: /home/$FTP_USER/ftp/uploads"
-    } > "$OUTPUT_FILE"
+    echo -e "FTP Settings for Kiloview Cube R1:\n" > $OUTPUT_FILE
+    echo -e "Name:             MyFTPServer" >> $OUTPUT_FILE
+    echo -e "FTP Host:         $SERVER_IP" >> $OUTPUT_FILE
+    echo -e "Port:             21" >> $OUTPUT_FILE
+    echo -e "Username:         $FTP_USER" >> $OUTPUT_FILE
+    echo -e "Password:         (the password you chose)" >> $OUTPUT_FILE
+    echo -e "Upload Directory: /uploads\n" >> $OUTPUT_FILE
+    echo -e "Full server path created: /home/$FTP_USER/ftp/uploads" >> $OUTPUT_FILE
     echo -e "${GREEN}✅ FTP setup complete.${NC}"
     show_summary
     exit 0
 
+# === REMOVE MODE ===
 elif [[ "$CHOICE" == "2" ]]; then
     echo -e "${YELLOW}Scanning for FTP-configured users...${NC}"
     USERS=$(ls /home | while read u; do [ -d "/home/$u/ftp/uploads" ] && echo $u; done)
@@ -106,7 +106,7 @@ elif [[ "$CHOICE" == "2" ]]; then
         echo -e "${GREEN}🔁 Backup saved to $BACKUP_DIR${NC}"
     fi
     for u in $USERS; do
-        deluser --remove-home "$u"
+        deluser --remove-home $u
         echo -e "${GREEN}🗑️ Removed user $u${NC}"
     done
     apt remove -y vsftpd && apt autoremove -y
@@ -114,29 +114,27 @@ elif [[ "$CHOICE" == "2" ]]; then
     echo -e "${GREEN}✅ All users removed and FTP server uninstalled.${NC}"
     exit 0
 
+# === CREATE NEW USER ===
 elif [[ "$CHOICE" == "3" ]]; then
     read -p "Enter new FTP username: " FTP_USER
-    echo -n "Enter new FTP password: "
-    read -s FTP_PASSWORD
+    read -s -p "Enter new FTP password: " FTP_PASSWORD
     echo ""
-    adduser --disabled-password --gecos "" "$FTP_USER"
-    echo "$FTP_USER:$FTP_PASSWORD" | chpasswd
+    adduser --disabled-password --gecos "" $FTP_USER
+    echo "${FTP_USER}:${FTP_PASSWORD}" | chpasswd
     mkdir -p /home/$FTP_USER/ftp/uploads
     chown nobody:nogroup /home/$FTP_USER/ftp
     chmod a-w /home/$FTP_USER/ftp
     chown $FTP_USER:$FTP_USER /home/$FTP_USER/ftp/uploads
     SERVER_IP=$(hostname -I | awk '{print $1}')
     OUTPUT_FILE="/home/$FTP_USER/ftp/ftp_config_summary.txt"
-    {
-        echo -e "FTP Settings for Kiloview Cube R1:\n"
-        echo -e "Name:             MyFTPServer"
-        echo -e "FTP Host:         $SERVER_IP"
-        echo -e "Port:             21"
-        echo -e "Username:         $FTP_USER"
-        echo -e "Password:         (the password you chose)"
-        echo -e "Upload Directory: /uploads\n"
-        echo -e "Full server path created: /home/$FTP_USER/ftp/uploads"
-    } > "$OUTPUT_FILE"
+    echo -e "FTP Settings for Kiloview Cube R1:\n" > $OUTPUT_FILE
+    echo -e "Name:             MyFTPServer" >> $OUTPUT_FILE
+    echo -e "FTP Host:         $SERVER_IP" >> $OUTPUT_FILE
+    echo -e "Port:             21" >> $OUTPUT_FILE
+    echo -e "Username:         $FTP_USER" >> $OUTPUT_FILE
+    echo -e "Password:         (the password you chose)" >> $OUTPUT_FILE
+    echo -e "Upload Directory: /uploads\n" >> $OUTPUT_FILE
+    echo -e "Full server path created: /home/$FTP_USER/ftp/uploads" >> $OUTPUT_FILE
     echo -e "${GREEN}✅ New FTP user created. Summary saved to: $OUTPUT_FILE${NC}"
     show_summary
     exit 0
