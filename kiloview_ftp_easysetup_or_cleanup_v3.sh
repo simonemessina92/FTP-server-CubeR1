@@ -1,42 +1,38 @@
 #!/usr/bin/env bash
 # =============================================================================
 #  Script: setup_ftp_nginx.sh
-#  Autore: ChatGPT per Sem – revisione "password‑safe" (Giugno 2025)
+#  Autore: ChatGPT per Sem – FIX Ubuntu 20.04 (Giugno 2025)
 # =============================================================================
 #  Scopo :
-#  ▸ Installare / disinstallare vsftpd + Nginx con domande interattive 
-#  ▸ Password non visibile **né** salvata: conferma doppia, hashing SHA‑512,
-#    variabile sovrascritta & unset.
-#  ▸ Backup opzionale dell’home, porte personalizzabili, supporto apt/dnf.
+#   ▸ Installazione/Disinstallazione di vsftpd + Nginx.
+#   ▸ Password gestita con `passwd` (mai in chiaro).
+#   ▸ Backup opzionale, porte custom.
+#   ▸ Correzione vsftpd.conf: ora usa il token $USER **runtime**, non "root".
 # =============================================================================
 set -Eeuo pipefail
-trap 'echo -e "\n[ERRORE] linea $LINENO – controlla sintassi o permessi." >&2' ERR
+trap 'echo -e "\n[ERRORE @ linea $LINENO]" >&2' ERR
 
 # --- UTIL ---------------------------------------------------------
 need_root() { [[ $EUID -eq 0 ]] || { echo "Devi essere root." >&2; exit 1; }; }
 ask() { local ans; read -rp "$1 " ans; echo "${ans:-$2}"; }
-yn()  { local r; while true; do read -rp "$1 (y/n): " r; case $r in [Yy]*) return 0;; [Nn]*) return 1;; esac; done; }
-overwrite_var() { local -n __var=$1; __var=""; unset __var; }
+yn()  {
+  local r; while true; do read -rp "$1 (y/n): " r; case $r in [Yy]*) return 0;; [Nn]*) return 1;; esac; done;
+}
 
 backup_dir="/root/BCKP"
 
-# Package manager abstraction -------------------------------------------------
+# Package‑manager abstraction -------------------------------------
 if command -v apt &>/dev/null; then
-  INSTALL() { apt update && DEBIAN_FRONTEND=noninteractive apt install -y "$@"; }
-  REMOVE()  { apt purge -y "$@"; }
-  CLEAN()   { apt autoremove -y --purge; }
-elif command -v dnf &>/dev/null; then
-  INSTALL() { dnf install -y "$@"; }
-  REMOVE()  { dnf remove -y "$@"; }
-  CLEAN()   { dnf autoremove -y; }
+  install() { apt update && DEBIAN_FRONTEND=noninteractive apt install -y "$@"; }
+  remove()  { apt purge -y "$@"; }
+  clean()   { apt autoremove -y --purge; }
 else
-  echo "Distro non supportata (serve apt o dnf)." >&2; exit 1;
+  echo "Questa versione è tarata su Ubuntu/Debian con apt." >&2; exit 1;
 fi
 
-# ---------------- Install ----------------------------------------
+# ---------------- INSTALL ----------------------------------------
 install_stack() {
-  echo "=== INSTALL ==="
-  INSTALL vsftpd nginx openssl
+  echo "=== INSTALL ==="; install vsftpd nginx
 
   # ----- utente --------------------------------------------------
   local ftp_user
@@ -47,24 +43,12 @@ install_stack() {
     break
   done
 
-  # ----- password (doppia conferma, silenziosa) ------------------
-  local pw1 pw2 pw_hash
-  while true; do
-    read -s -r -p "Password per $ftp_user: " pw1; echo
-    read -s -r -p "Conferma password : " pw2; echo
-    [[ $pw1 == "$pw2" ]] && [[ -n $pw1 ]] && break
-    echo "Le password non coincidono o vuote. Riprova."
-  done
-  pw_hash=$(openssl passwd -6 "$pw1")
-  overwrite_var pw1; overwrite_var pw2
-
-  # ----- creazione utente ---------------------------------------
-  useradd -m -p "$pw_hash" "$ftp_user"
-  overwrite_var pw_hash
+  adduser --disabled-password --gecos "" "$ftp_user"
+  echo -e "\nImposta la password per $ftp_user:"; passwd "$ftp_user"
 
   local ftp_root="/home/$ftp_user"; chmod 755 "$ftp_root"
 
-  # ----- porte custom -------------------------------------------
+  # ----- porte ---------------------------------------------------
   local ftp_port pasv_min pasv_max nginx_port
   ftp_port=$(ask "Porta FTP (21):" 21)
   pasv_min=$(ask "PASV min (21100):" 21100)
@@ -73,22 +57,27 @@ install_stack() {
 
   # ----- vsftpd.conf --------------------------------------------
   cp /etc/vsftpd.conf{,.bak.$(date +%s)}
-  cat > /etc/vsftpd.conf <<EOF
+  cat > /etc/vsftpd.conf <<'VSFTP'
 listen=YES
-listen_port=$ftp_port
+listen_port=REPLACE_FTP_PORT
 anonymous_enable=NO
 local_enable=YES
 write_enable=YES
 chroot_local_user=YES
 allow_writeable_chroot=YES
 pasv_enable=YES
-pasv_min_port=$pasv_min
-pasv_max_port=$pasv_max
+pasv_min_port=REPLACE_PASV_MIN
+pasv_max_port=REPLACE_PASV_MAX
 user_sub_token=$USER
-local_root=$ftp_root
+local_root=/home/$USER
 utf8_filesystem=YES
 ssl_enable=NO
-EOF
+VSFTP
+  # sostituzioni dinamiche
+  sed -i "s/REPLACE_FTP_PORT/${ftp_port}/" /etc/vsftpd.conf
+  sed -i "s/REPLACE_PASV_MIN/${pasv_min}/" /etc/vsftpd.conf
+  sed -i "s/REPLACE_PASV_MAX/${pasv_max}/" /etc/vsftpd.conf
+
   systemctl enable --now vsftpd
 
   # ----- Nginx default site -------------------------------------
@@ -101,7 +90,7 @@ EOF
   echo -e "\n[OK] Stack pronta!\n  • FTP  : ftp://<IP>:${ftp_port}/ (PASV ${pasv_min}-${pasv_max})\n  • HTTP : http://<IP>:${nginx_port}/  (root → $ftp_root)"
 }
 
-# ---------------- Uninstall -------------------------------------
+# ---------------- UNINSTALL -------------------------------------
 uninstall_stack() {
   echo "=== UNINSTALL ==="
   local ftp_user=$(ask "Utente FTP da rimuovere:")
@@ -114,8 +103,8 @@ uninstall_stack() {
   fi
 
   userdel -r "$ftp_user"
-  REMOVE vsftpd nginx openssl
-  CLEAN
+  remove vsftpd nginx
+  clean
   echo "Disinstallazione completata."
 }
 
