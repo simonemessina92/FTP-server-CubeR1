@@ -44,7 +44,6 @@ install_stack() {
   echo -ne "${B}FTP password:${R} "; stty -echo; read -r ftp_pass; stty echo; echo
   ftp_port=$(ask "FTP port (21):" 21)
   web_port=$(ask "Web port (8080):" 8080)
-  echo "Avoiding PASV 30000–30200 (Kilolink Pro)."
   if yn "Use default PASV 20000–20200?"; then pasv_min=20000; pasv_max=20200; else
     pasv_min=$(ask "PASV min:" 21100); pasv_max=$(ask "PASV max:" 21110);
   fi
