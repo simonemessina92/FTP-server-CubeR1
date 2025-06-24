@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  🎬  Kiloview FTP + Nginx Helper – Public IP Fix Version (Ubuntu 20.04+)
+#  🎬  Kiloview FTP + Nginx Helper – FINAL VERSION (TTY-safe, cloud-safe)
 # =============================================================================
 set -Eeuo pipefail
 trap 'echo -e "\n\033[1;31m[ERROR at line $LINENO]\033[0m  (see /tmp/kilo-setup.log)" >&2' ERR
@@ -96,12 +96,14 @@ cat <<'BANNER'
 ╚══════════════════════════════════════════════════════╝
 BANNER
 
-PS3=$'Select option → '
-select opt in "Install / Update" "Remove" "Exit"; do
-  case $REPLY in
-    1) install_stack; break;;
-    2) uninstall_stack; break;;
-    3) echo "Bye."; exit 0;;
-    *) echo -e "\033[1;31mInvalid choice.\033[0m";;
-  esac
-done
+echo "1) Install / Update"
+echo "2) Remove"
+echo "3) Exit"
+read -rp "Select option → " opt
+
+case "$opt" in
+  1) install_stack ;;
+  2) uninstall_stack ;;
+  3) echo "Bye." && exit 0 ;;
+  *) echo -e "\033[1;31mInvalid choice.\033[0m" && exit 1 ;;
+esac
