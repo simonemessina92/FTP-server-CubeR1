@@ -42,6 +42,10 @@ if [[ "$CHOICE" == "1" ]]; then
     chmod a-w /home/$FTP_USER/ftp
     chown $FTP_USER:$FTP_USER /home/$FTP_USER/ftp/uploads
 
+    # Permission fix (initial)
+    chmod -R a+r /home/$FTP_USER/ftp/uploads
+    chmod -R a+X /home/$FTP_USER/ftp
+
     echo -e "${BLUE}Configuring vsftpd...${NC}"
     cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
     cat <<EOL > /etc/vsftpd.conf
@@ -57,6 +61,8 @@ pasv_max_port=20200
 user_sub_token=\$USER
 local_root=/home/\$USER/ftp
 userlist_enable=NO
+local_umask=022
+file_open_mode=0644
 EOL
     systemctl restart vsftpd
 
