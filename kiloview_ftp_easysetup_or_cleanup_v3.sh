@@ -33,10 +33,10 @@ show_summary() {
 # === INSTALL MODE ===
 if [[ "$CHOICE" == "1" ]]; then
     read -p "Enter your desired FTP username: " FTP_USER
-    read -p "Enter your desired FTP password: " FTP_PASSWORD
-    echo -e "${RED}Kilolink Server Pro uses ports 30000–30200. Avoid using this range for passive FTP.${NC}"
-    read -p "Use default passive port range 20000–20200? (yes/no): " USE_DEFAULT
-    if [[ "$USE_DEFAULT" == "no" ]]; then
+    read -s -p "Enter your desired FTP password: " FTP_PASSWORD
+    echo ""
+    read -p "Use default passive port range 20000–20200? (y/n): " USE_DEFAULT
+    if [[ "$USE_DEFAULT" == "n" ]]; then
         read -p "Enter Passive FTP port range START: " PASV_MIN_PORT
         read -p "Enter Passive FTP port range END: " PASV_MAX_PORT
     else
@@ -90,13 +90,13 @@ elif [[ "$CHOICE" == "2" ]]; then
     fi
     echo -e "${GREEN}✅ Found the following FTP-configured users:${NC}"
     echo "$USERS"
-    read -p "Do you want to remove ALL of these users and their data? (yes/no): " CONFIRM_ALL
-    if [[ "$CONFIRM_ALL" != "yes" ]]; then
+    read -p "Do you want to remove ALL of these users and their data? (y/n): " CONFIRM_ALL
+    if [[ "$CONFIRM_ALL" != "y" ]]; then
         echo -e "${RED}⛔ Removal aborted by user.${NC}"
         exit 1
     fi
-    read -p "Do you want to backup video files before deletion? (yes/no): " BACKUP
-    if [[ "$BACKUP" == "yes" ]]; then
+    read -p "Do you want to backup video files before deletion? (y/n): " BACKUP
+    if [[ "$BACKUP" == "y" ]]; then
         BACKUP_DIR="/root/backupFTP_$(date +%Y%m%d_%H%M)"
         mkdir -p "$BACKUP_DIR"
         for u in $USERS; do
@@ -116,7 +116,8 @@ elif [[ "$CHOICE" == "2" ]]; then
 # === CREATE NEW USER ===
 elif [[ "$CHOICE" == "3" ]]; then
     read -p "Enter new FTP username: " FTP_USER
-    read -p "Enter new FTP password: " FTP_PASSWORD
+    read -s -p "Enter new FTP password: " FTP_PASSWORD
+    echo ""
     adduser --disabled-password --gecos "" $FTP_USER
     echo "${FTP_USER}:${FTP_PASSWORD}" | chpasswd
     mkdir -p /home/$FTP_USER/ftp/uploads
