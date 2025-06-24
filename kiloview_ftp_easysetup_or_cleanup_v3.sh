@@ -1,117 +1,116 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Script: setup_ftp_nginx.sh
-#  Autore: ChatGPT per Sem – FIX Ubuntu 20.04 (Giugno 2025)
-# =============================================================================
-#  Scopo :
-#   ▸ Installazione/Disinstallazione di vsftpd + Nginx.
-#   ▸ Password gestita con `passwd` (mai in chiaro).
-#   ▸ Backup opzionale, porte custom.
-#   ▸ Correzione vsftpd.conf: ora usa il token $USER **runtime**, non "root".
+#  Kiloview FTP + Nginx auto-index helper
+#  ► ONE-LINE INSTALL / REMOVE for Ubuntu 20.04 (apt)
+#  ► Totally quiet: dopo i prompt non vedi nulla finché compare il messaggio ✅ finale.
+#  ► Password gestita da `passwd`, quindi mai stampata o memorizzata.
+#  ► Nginx serve l’home dell’utente con autoindex on.
 # =============================================================================
 set -Eeuo pipefail
-trap 'echo -e "\n[ERRORE @ linea $LINENO]" >&2' ERR
+trap 'echo -e "\n\033[31m[ERRORE @ linea $LINENO]\033[0m" >&2' ERR
 
-# --- UTIL ---------------------------------------------------------
-need_root() { [[ $EUID -eq 0 ]] || { echo "Devi essere root." >&2; exit 1; }; }
-ask() { local ans; read -rp "$1 " ans; echo "${ans:-$2}"; }
-yn()  {
-  local r; while true; do read -rp "$1 (y/n): " r; case $r in [Yy]*) return 0;; [Nn]*) return 1;; esac; done;
-}
+# ---------- Colori & icone ---------------------------------------------------
+B="\033[1m"; R="\033[0m"; GREEN="\033[32m"; CYAN="\033[36m"
+INFO="${CYAN}➜${R}"; OK="${GREEN}✅${R}"
 
+# ---------- Funzioni utili ----------------------------------------------------
+need_root() { [[ $EUID -eq 0 ]] || { echo -e "${B}Devi essere root.${R}" >&2; exit 1; }; }
+ask()       { local a; read -rp "${B}$1${R} " a; echo "${a:-$2}"; }
+yn()        { local r; while true; do read -rp "$1 (y/n): " r; case $r in [Yy]*) return 0;; [Nn]*) return 1;; esac; done; }
+quiet()     { "$@" > /dev/null 2>&1; }
+spinner()   { local pid=$1; local s='|/-\\'; local i=0; while kill -0 $pid 2>/dev/null; do printf "\r⏳ %s " "${s:i++%4:1}"; sleep 0.1; done; printf "\r"; }
 backup_dir="/root/BCKP"
 
-# Package‑manager abstraction -------------------------------------
-if command -v apt &>/dev/null; then
-  install() { apt update && DEBIAN_FRONTEND=noninteractive apt install -y "$@"; }
-  remove()  { apt purge -y "$@"; }
-  clean()   { apt autoremove -y --purge; }
-else
-  echo "Questa versione è tarata su Ubuntu/Debian con apt." >&2; exit 1;
-fi
+# ---------- Gestione pacchetti (Ubuntu) --------------------------------------
+install_pkgs() { quiet apt-get update && quiet apt-get install -y -qq "$@"; }
+remove_pkgs()  { quiet apt-get purge  -y -qq "$@"; }
+autoclean()    { quiet apt-get autoremove -y -qq --purge; }
 
-# ---------------- INSTALL ----------------------------------------
+# ---------- INSTALL -----------------------------------------------------------
 install_stack() {
-  echo "=== INSTALL ==="; install vsftpd nginx
+  echo -e "${INFO} Installazione in corso… (rimani calmo, niente output 🤫)"
 
-  # ----- utente --------------------------------------------------
-  local ftp_user
+  # --- input utente ----------------------------------------------------------
+  local ftp_user ftp_pass ftp_port pasv_min pasv_max web_port
   while true; do
-    ftp_user=$(ask "Nome utente FTP:")
-    [[ $ftp_user =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Nome non valido."; continue; }
-    id "$ftp_user" &>/dev/null && { echo "Utente già presente."; continue; }
-    break
+    ftp_user=$(ask "FTP username:");
+    [[ $ftp_user =~ ^[a-z_][a-z0-9_-]*$ ]] && ! id "$ftp_user" &>/dev/null && break;
+    echo "Nome non valido o già esistente.";
   done
+  echo -ne "${B}FTP password:${R} "; stty -echo; read -r ftp_pass; stty echo; echo
+  ftp_port=$(ask "Porta FTP (21):" 21)
+  web_port=$(ask "Porta Web (8080):" 8080)
+  echo "Evito PASV 30000-30200 (Kilolink Pro)."
+  if yn "Use default PASV 20000-20200?"; then pasv_min=20000; pasv_max=20200; else
+    pasv_min=$(ask "PASV min:" 21100); pasv_max=$(ask "PASV max:" 21110);
+  fi
 
-  adduser --disabled-password --gecos "" "$ftp_user"
-  echo -e "\nImposta la password per $ftp_user:"; passwd "$ftp_user"
+  # --- pacchetti (silenzioso con spinner) ------------------------------------
+  install_pkgs vsftpd nginx & pid=$!; spinner $pid
 
+  # --- utente & password -----------------------------------------------------
+  quiet adduser --disabled-password --gecos "" "$ftp_user"
+  printf "%s:%s" "$ftp_user" "$ftp_pass" | chpasswd -e 2>/dev/null || echo "$ftp_user:$ftp_pass" | chpasswd
+  unset ftp_pass
   local ftp_root="/home/$ftp_user"; chmod 755 "$ftp_root"
 
-  # ----- porte ---------------------------------------------------
-  local ftp_port pasv_min pasv_max nginx_port
-  ftp_port=$(ask "Porta FTP (21):" 21)
-  pasv_min=$(ask "PASV min (21100):" 21100)
-  pasv_max=$(ask "PASV max (21110):" 21110)
-  nginx_port=$(ask "Porta HTTP Nginx (80):" 80)
-
-  # ----- vsftpd.conf --------------------------------------------
-  cp /etc/vsftpd.conf{,.bak.$(date +%s)}
-  cat > /etc/vsftpd.conf <<'VSFTP'
+  # --- vsftpd.conf -----------------------------------------------------------
+  cat > /etc/vsftpd.conf <<VSFTP
 listen=YES
-listen_port=REPLACE_FTP_PORT
+listen_port=$ftp_port
 anonymous_enable=NO
 local_enable=YES
 write_enable=YES
 chroot_local_user=YES
 allow_writeable_chroot=YES
 pasv_enable=YES
-pasv_min_port=REPLACE_PASV_MIN
-pasv_max_port=REPLACE_PASV_MAX
+pasv_min_port=$pasv_min
+pasv_max_port=$pasv_max
 user_sub_token=$USER
 local_root=/home/$USER
 utf8_filesystem=YES
 ssl_enable=NO
 VSFTP
-  # sostituzioni dinamiche
-  sed -i "s/REPLACE_FTP_PORT/${ftp_port}/" /etc/vsftpd.conf
-  sed -i "s/REPLACE_PASV_MIN/${pasv_min}/" /etc/vsftpd.conf
-  sed -i "s/REPLACE_PASV_MAX/${pasv_max}/" /etc/vsftpd.conf
+  quiet systemctl enable --now vsftpd
 
-  systemctl enable --now vsftpd
+  # --- Nginx default site ----------------------------------------------------
+  cat > /etc/nginx/sites-available/default <<NGX
+server {
+    listen ${web_port} default_server;
+    listen [::]:${web_port} default_server;
+    root ${ftp_root};
+    index  index.html index.htm;
+    autoindex on;
+}
+NGX
+  quiet systemctl enable --now nginx
 
-  # ----- Nginx default site -------------------------------------
-  cp /etc/nginx/sites-available/default{,.bak.$(date +%s)}
-  sed -Ei "s#root [^;]*;#root $ftp_root;#" /etc/nginx/sites-available/default
-  sed -Ei "s/listen [0-9]+ default_server;/listen ${nginx_port} default_server;/" /etc/nginx/sites-available/default
-  sed -Ei "s/listen \[::\]:[0-9]+ default_server;/listen [::]:${nginx_port} default_server;/" /etc/nginx/sites-available/default
-  systemctl enable --now nginx
-
-  echo -e "\n[OK] Stack pronta!\n  • FTP  : ftp://<IP>:${ftp_port}/ (PASV ${pasv_min}-${pasv_max})\n  • HTTP : http://<IP>:${nginx_port}/  (root → $ftp_root)"
+  echo -e "${OK} Install complete\nFTP  : ${ftp_user} @ ftp://$(hostname -I | awk '{print $1}'):${ftp_port}\nWEB  : http://$(hostname -I | awk '{print $1}'):${web_port}  (auto-index)"
 }
 
-# ---------------- UNINSTALL -------------------------------------
+# ---------- UNINSTALL --------------------------------------------------------
 uninstall_stack() {
-  echo "=== UNINSTALL ==="
   local ftp_user=$(ask "Utente FTP da rimuovere:")
   id "$ftp_user" &>/dev/null || { echo "Utente inesistente."; exit 1; }
-
   if yn "Backup di /home/$ftp_user?"; then
-    mkdir -p "$backup_dir"
-    tar czf "$backup_dir/${ftp_user}_$(date +%F_%H-%M-%S).tgz" "/home/$ftp_user"
-    echo "Backup salvato in $backup_dir"
+    mkdir -p "$backup_dir"; tar czf "$backup_dir/${ftp_user}_$(date +%F_%H-%M-%S).tgz" "/home/$ftp_user" >/dev/null 2>&1;
   fi
-
-  userdel -r "$ftp_user"
-  remove vsftpd nginx
-  clean
-  echo "Disinstallazione completata."
+  quiet userdel -r "$ftp_user"
+  remove_pkgs vsftpd nginx; autoclean
+  echo -e "${OK} Disinstallazione completata."
 }
 
-# ---------------- MENU ------------------------------------------
+# ---------- MENU -------------------------------------------------------------
+clear
+cat <<'BANNER'
+╔══════════════════════════════════════════════════════╗
+║  🎬  Kiloview FTP + Nginx auto-index helper          ║
+╚══════════════════════════════════════════════════════╝
+BANNER
+
 need_root
-PS3=$'\nScegli opzione: '
-select opt in "Installa FTP + Nginx" "Disinstalla" "Esci"; do
+PS3=$'\nScegli opzione → '
+select opt in "Install / Update" "Remove" "Exit"; do
   case $REPLY in
     1) install_stack; break;;
     2) uninstall_stack; break;;
