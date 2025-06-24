@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  🎬  Kiloview FTP + Nginx Helper – Styled Version (Ubuntu 20.04)
-# =============================================================================
-#  ► Color-enhanced, emoji-based UI
-#  ► Still compatible with curl | bash from GitHub
+#  🎬  Kiloview FTP + Nginx Helper – Public IP Fix Version (Ubuntu 20.04+)
 # =============================================================================
 set -Eeuo pipefail
 trap 'echo -e "\n\033[1;31m[ERROR at line $LINENO]\033[0m  (see /tmp/kilo-setup.log)" >&2' ERR
@@ -64,8 +61,9 @@ VSFTP
 
   cat > /etc/nginx/sites-available/default <<NGX
 server {
-    listen ${web_port} default_server;
+    listen 0.0.0.0:${web_port} default_server;
     listen [::]:${web_port} default_server;
+    server_name _;
     root ${ftp_root};
     index index.html index.htm;
     autoindex on;
