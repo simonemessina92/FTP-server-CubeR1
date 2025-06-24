@@ -5,79 +5,110 @@
 #   Autore: Simone Messina / GitHub: simonemessina92
 # ───────────────────────────────────────────────
 
-clear
-echo -e "\033[1;35m┌────────────────────────────────────────────┐"
-echo -e "│ 📦  Kiloview FTP + Nginx auto-index helper │"
-echo -e "└────────────────────────────────────────────┘\033[0m"
-echo
-echo "1) Install / Update"
-echo "2) Remove"
-echo "3) Exit"
+set -Eeuo pipefail
+trap 'echo -e "\n\033[1;31m[ERROR at line $LINENO]\033[0m (see /tmp/kilo-setup.log)" >&2' ERR
 
-# Fix per far leggere da tastiera anche via curl | bash
-exec < /dev/tty
-read -rp "Select option → " opt
+log="/tmp/kilo-setup.log"; :> "$log"
+quiet()   { "$@" >> "$log" 2>&1; }
+spinner() { local p=$1 s='|/-\\' i=0; while kill -0 $p 2>/dev/null; do printf "\r[Working] %s " "${s:i++%4:1}"; sleep 0.1; done; printf "\r"; }
+
+ask()       { local a; read -rp "$1 " a; echo "${a:-$2}"; }
+yn()        { local r; while true; do read -rp "$1 (y/n): " r; case $r in [Yy]*) return 0;; [Nn]*) return 1;; esac; done; }
+
+backup_dir="/root/BCKP"
+
+install_pkgs() { quiet apt-get update && DEBIAN_FRONTEND=noninteractive quiet apt-get install -y -qq "$@"; }
+remove_pkgs()  { DEBIAN_FRONTEND=noninteractive quiet apt-get purge  -y -qq "$@"; }
+autoclean()    { quiet apt-get autoremove -y -qq --purge; }
 
 install_stack() {
-  echo "[INFO] Installing... (logging to /tmp/kilo-setup.log)"
+  echo -e "\033[1;34m➜ Installing...\033[0m (logging to $log)"
 
-  apt update -y >> /tmp/kilo-setup.log 2>&1
-  apt install -y vsftpd nginx >> /tmp/kilo-setup.log 2>&1
+  local ftp_user ftp_pass ftp_port pasv_min pasv_max web_port
+  while true; do
+    read -rp $'FTP username: ' ftp_user
+    [[ $ftp_user =~ ^[a-z_][a-z0-9_-]*$ ]] && ! id "$ftp_user" &>/dev/null && break
+    echo -e "\033[1;31mInvalid or existing username.\033[0m"
+  done
+  echo -ne "FTP password: "; stty -echo; read -r ftp_pass; stty echo; echo
+  ftp_port=$(ask "FTP port (21):" 21)
+  web_port=$(ask "Web port (8080):" 8080)
+  if yn "Use default PASV 20000–20200?"; then pasv_min=20000; pasv_max=20200; else
+    pasv_min=$(ask "PASV min:" 21100); pasv_max=$(ask "PASV max:" 21110);
+  fi
 
-  read -rp "FTP username: " ftpuser
-  read -rsp "FTP password: " ftppass
-  echo
-  read -rp "FTP port (21): " ftpport
-  ftpport=${ftpport:-21}
-  read -rp "Web port (8080): " webport
-  webport=${webport:-8080}
+  install_pkgs vsftpd nginx & pid=$!; spinner $pid
 
-  useradd -m -d /home/"$ftpuser" -s /bin/bash "$ftpuser"
-  echo "$ftpuser:$ftppass" | chpasswd
+  quiet adduser --disabled-password --gecos "" "$ftp_user"
+  echo "$ftp_user:$ftp_pass" | chpasswd > /dev/null 2>&1
+  unset ftp_pass
+  local ftp_root="/home/$ftp_user"; chmod 755 "$ftp_root"
 
-  cat > /etc/vsftpd.conf <<EOF
+  cat > /etc/vsftpd.conf <<VSFTP
 listen=YES
-listen_port=$ftpport
+listen_port=$ftp_port
 anonymous_enable=NO
 local_enable=YES
 write_enable=YES
 chroot_local_user=YES
+allow_writeable_chroot=YES
 pasv_enable=YES
-pasv_min_port=20000
-pasv_max_port=20200
-EOF
+pasv_min_port=$pasv_min
+pasv_max_port=$pasv_max
+user_sub_token=\$USER
+local_root=/home/\$USER
+utf8_filesystem=YES
+ssl_enable=NO
+VSFTP
+  quiet systemctl enable --now vsftpd
 
-  systemctl restart vsftpd
-
-  cat > /etc/nginx/sites-available/default <<EOF
+  cat > /etc/nginx/sites-available/default <<NGX
 server {
-    listen $webport default_server;
-    listen [::]:$webport default_server;
-    root /home/$ftpuser;
+    listen 0.0.0.0:${web_port} default_server;
+    listen [::]:${web_port} default_server;
+    server_name _;
+    root ${ftp_root};
     index index.html index.htm;
     autoindex on;
 }
-EOF
+NGX
+  quiet systemctl enable --now nginx
 
-  systemctl restart nginx
-
-  echo
-  echo -e "\033[1;32m✅ Install complete\033[0m"
-  echo "FTP  : $ftpuser @ ftp://<your-ip>:$ftpport"
-  echo "HTTP : http://<your-ip>:$webport"
+  local ip=$(hostname -I | awk '{print $1}')
+  echo -e "\n\033[1;32m✅ Install complete\033[0m"
+  echo -e "FTP  : \033[1;36m${ftp_user} @ ftp://${ip}:${ftp_port}\033[0m"
+  echo -e "WEB  : \033[1;36mhttp://${ip}:${web_port}\033[0m  (auto-index)"
 }
 
 uninstall_stack() {
-  echo "[INFO] Removing FTP and NGINX..."
-  systemctl stop vsftpd nginx
-  apt purge -y vsftpd nginx
-  apt autoremove -y
-  echo -e "\033[1;31mUninstall complete.\033[0m"
+  local ftp_user
+  read -rp "FTP user to remove: " ftp_user
+  id "$ftp_user" &>/dev/null || { echo -e "\033[1;31mUser does not exist.\033[0m"; exit 1; }
+  if yn "Backup /home/$ftp_user before removal?"; then
+    mkdir -p "$backup_dir"; tar czf "$backup_dir/${ftp_user}_$(date +%F_%H-%M-%S).tgz" "/home/$ftp_user" >> "$log" 2>&1;
+  fi
+  quiet userdel -r "$ftp_user"
+  remove_pkgs vsftpd nginx; autoclean
+  echo -e "\033[1;33mUninstallation complete.\033[0m"
 }
+
+clear
+cat <<'BANNER'
+╔══════════════════════════════════════════════════════╗
+║  🎬  Kiloview FTP + Nginx auto-index helper          ║
+╚══════════════════════════════════════════════════════╝
+BANNER
+
+if [ -t 0 ]; then exec < /dev/tty; fi
+
+echo "1) Install / Update"
+echo "2) Remove"
+echo "3) Exit"
+read -rp "Select option → " opt
 
 case "$opt" in
   1) install_stack ;;
   2) uninstall_stack ;;
-  3) echo "Bye!" && exit 0 ;;
+  3) echo "Bye." && exit 0 ;;
   *) echo -e "\033[1;31mInvalid choice.\033[0m" && exit 1 ;;
 esac
