@@ -32,8 +32,8 @@ show_summary() {
 
 # === INSTALL MODE ===
 if [[ "$CHOICE" == "1" ]]; then
-    read -p "Enter your desired FTP username: " FTP_USER
-    read -s -p "Enter your desired FTP password: " FTP_PASSWORD
+    read -p "FTP username : " FTP_USER
+    read -s -p "FTP password : " FTP_PASSWORD
     echo ""
     read -p "Use default passive port range 20000–20200? (y/n): " USE_DEFAULT
     if [[ "$USE_DEFAULT" == "n" ]]; then
@@ -80,7 +80,6 @@ EOL
     show_summary
     exit 0
 
-# === REMOVE MODE ===
 elif [[ "$CHOICE" == "2" ]]; then
     echo -e "${YELLOW}Scanning for FTP-configured users...${NC}"
     USERS=$(ls /home | while read u; do [ -d "/home/$u/ftp/uploads" ] && echo $u; done)
@@ -113,7 +112,6 @@ elif [[ "$CHOICE" == "2" ]]; then
     echo -e "${GREEN}✅ All users removed and FTP server uninstalled.${NC}"
     exit 0
 
-# === CREATE NEW USER ===
 elif [[ "$CHOICE" == "3" ]]; then
     read -p "Enter new FTP username: " FTP_USER
     read -s -p "Enter new FTP password: " FTP_PASSWORD
