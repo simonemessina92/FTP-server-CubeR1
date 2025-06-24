@@ -11,7 +11,7 @@ NC='\033[0m'
 print_header() {
     clear
     echo -e "${CYAN}============================================"
-    echo -e "🚀  ${GREEN}Kiloview FTP + NGINX Installer${NC} by Simone Messina"
+    echo -e "🚀  ${GREEN}Kiloview FTP + NGINX Installer${NC} "
     echo -e "${CYAN}============================================${NC}\n"
 }
 
