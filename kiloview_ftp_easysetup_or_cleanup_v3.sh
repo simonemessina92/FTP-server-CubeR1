@@ -1,60 +1,61 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  Kiloview FTP + Nginx auto-index helper
-#  ► ONE-LINE INSTALL / REMOVE for Ubuntu 20.04 (apt)
-#  ► Totally quiet: dopo i prompt non vedi nulla finché compare il messaggio ✅ finale.
-#  ► Password gestita da `passwd`, quindi mai stampata o memorizzata.
-#  ► Nginx serve l’home dell’utente con autoindex on.
+#  🎬  Kiloview FTP + Nginx Helper – “silent & colorful”  (Ubuntu 20.04)
+# =============================================================================
+#  ► Prompts only – no intermediate output: runs silently, logs to /tmp/kilo-setup.log
+#  ► Password never echoed (handled securely via passwd/chpasswd)
+#  ► Spinner ⏳ shows install activity, then just ✅ at the end
+#  ► Nginx auto-indexes user home directory for web access
 # =============================================================================
 set -Eeuo pipefail
-trap 'echo -e "\n\033[31m[ERRORE @ linea $LINENO]\033[0m" >&2' ERR
+trap 'echo -e "\n\033[31m[ERROR at line $LINENO]\033[0m  (see /tmp/kilo-setup.log)" >&2' ERR
 
-# ---------- Colori & icone ---------------------------------------------------
-B="\033[1m"; R="\033[0m"; GREEN="\033[32m"; CYAN="\033[36m"
-INFO="${CYAN}➜${R}"; OK="${GREEN}✅${R}"
+# ---------- Style & Icons ----------------------------------------------------
+B="\033[1m"; R="\033[0m"; G="\033[32m"; C="\033[36m"; Y="\033[33m"
+INFO="${C}➜${R}"; OK="${G}✅${R}"
 
-# ---------- Funzioni utili ----------------------------------------------------
-need_root() { [[ $EUID -eq 0 ]] || { echo -e "${B}Devi essere root.${R}" >&2; exit 1; }; }
+# ---------- Log & silent execution -------------------------------------------
+log="/tmp/kilo-setup.log"; :> "$log"
+quiet()   { "$@" >> "$log" 2>&1; }
+spinner() { local p=$1 s='|/-\\' i=0; while kill -0 $p 2>/dev/null; do printf "\r⏳ %s " "${s:i++%4:1}"; sleep 0.1; done; printf "\r"; }
+
+# ---------- Utils ------------------------------------------------------------
+need_root() { [[ $EUID -eq 0 ]] || { echo -e "${B}You must run as root.${R}" >&2; exit 1; }; }
 ask()       { local a; read -rp "${B}$1${R} " a; echo "${a:-$2}"; }
 yn()        { local r; while true; do read -rp "$1 (y/n): " r; case $r in [Yy]*) return 0;; [Nn]*) return 1;; esac; done; }
-quiet()     { "$@" > /dev/null 2>&1; }
-spinner()   { local pid=$1; local s='|/-\\'; local i=0; while kill -0 $pid 2>/dev/null; do printf "\r⏳ %s " "${s:i++%4:1}"; sleep 0.1; done; printf "\r"; }
+
 backup_dir="/root/BCKP"
 
-# ---------- Gestione pacchetti (Ubuntu) --------------------------------------
-install_pkgs() { quiet apt-get update && quiet apt-get install -y -qq "$@"; }
-remove_pkgs()  { quiet apt-get purge  -y -qq "$@"; }
+# ---------- Package helpers --------------------------------------------------
+install_pkgs() { quiet apt-get update && DEBIAN_FRONTEND=noninteractive quiet apt-get install -y -qq "$@"; }
+remove_pkgs()  { DEBIAN_FRONTEND=noninteractive quiet apt-get purge  -y -qq "$@"; }
 autoclean()    { quiet apt-get autoremove -y -qq --purge; }
 
-# ---------- INSTALL -----------------------------------------------------------
+# ---------- INSTALL FUNCTION -------------------------------------------------
 install_stack() {
-  echo -e "${INFO} Installazione in corso… (rimani calmo, niente output 🤫)"
+  echo -e "${INFO} Installing... (logging to $log)"
 
-  # --- input utente ----------------------------------------------------------
   local ftp_user ftp_pass ftp_port pasv_min pasv_max web_port
   while true; do
     ftp_user=$(ask "FTP username:");
     [[ $ftp_user =~ ^[a-z_][a-z0-9_-]*$ ]] && ! id "$ftp_user" &>/dev/null && break;
-    echo "Nome non valido o già esistente.";
+    echo "Invalid or existing username.";
   done
   echo -ne "${B}FTP password:${R} "; stty -echo; read -r ftp_pass; stty echo; echo
-  ftp_port=$(ask "Porta FTP (21):" 21)
-  web_port=$(ask "Porta Web (8080):" 8080)
-  echo "Evito PASV 30000-30200 (Kilolink Pro)."
-  if yn "Use default PASV 20000-20200?"; then pasv_min=20000; pasv_max=20200; else
+  ftp_port=$(ask "FTP port (21):" 21)
+  web_port=$(ask "Web port (8080):" 8080)
+  echo "Avoiding PASV 30000–30200 (Kilolink Pro)."
+  if yn "Use default PASV 20000–20200?"; then pasv_min=20000; pasv_max=20200; else
     pasv_min=$(ask "PASV min:" 21100); pasv_max=$(ask "PASV max:" 21110);
   fi
 
-  # --- pacchetti (silenzioso con spinner) ------------------------------------
   install_pkgs vsftpd nginx & pid=$!; spinner $pid
 
-  # --- utente & password -----------------------------------------------------
   quiet adduser --disabled-password --gecos "" "$ftp_user"
-  printf "%s:%s" "$ftp_user" "$ftp_pass" | chpasswd -e 2>/dev/null || echo "$ftp_user:$ftp_pass" | chpasswd
+  echo "$ftp_user:$ftp_pass" | chpasswd --quiet
   unset ftp_pass
   local ftp_root="/home/$ftp_user"; chmod 755 "$ftp_root"
 
-  # --- vsftpd.conf -----------------------------------------------------------
   cat > /etc/vsftpd.conf <<VSFTP
 listen=YES
 listen_port=$ftp_port
@@ -66,41 +67,41 @@ allow_writeable_chroot=YES
 pasv_enable=YES
 pasv_min_port=$pasv_min
 pasv_max_port=$pasv_max
-user_sub_token=$USER
-local_root=/home/$USER
+user_sub_token=\$USER
+local_root=/home/\$USER
 utf8_filesystem=YES
 ssl_enable=NO
 VSFTP
   quiet systemctl enable --now vsftpd
 
-  # --- Nginx default site ----------------------------------------------------
   cat > /etc/nginx/sites-available/default <<NGX
 server {
     listen ${web_port} default_server;
     listen [::]:${web_port} default_server;
     root ${ftp_root};
-    index  index.html index.htm;
+    index index.html index.htm;
     autoindex on;
 }
 NGX
   quiet systemctl enable --now nginx
 
-  echo -e "${OK} Install complete\nFTP  : ${ftp_user} @ ftp://$(hostname -I | awk '{print $1}'):${ftp_port}\nWEB  : http://$(hostname -I | awk '{print $1}'):${web_port}  (auto-index)"
+  local ip=$(hostname -I | awk '{print $1}')
+  echo -e "\n${OK} Install complete\nFTP  : ${ftp_user} @ ftp://${ip}:${ftp_port}\nWEB  : http://${ip}:${web_port}  (auto-index)"
 }
 
-# ---------- UNINSTALL --------------------------------------------------------
+# ---------- UNINSTALL FUNCTION -----------------------------------------------
 uninstall_stack() {
-  local ftp_user=$(ask "Utente FTP da rimuovere:")
-  id "$ftp_user" &>/dev/null || { echo "Utente inesistente."; exit 1; }
-  if yn "Backup di /home/$ftp_user?"; then
-    mkdir -p "$backup_dir"; tar czf "$backup_dir/${ftp_user}_$(date +%F_%H-%M-%S).tgz" "/home/$ftp_user" >/dev/null 2>&1;
+  local ftp_user=$(ask "FTP user to remove:")
+  id "$ftp_user" &>/dev/null || { echo "User does not exist."; exit 1; }
+  if yn "Backup /home/$ftp_user before removal?"; then
+    mkdir -p "$backup_dir"; tar czf "$backup_dir/${ftp_user}_$(date +%F_%H-%M-%S).tgz" "/home/$ftp_user" >> "$log" 2>&1;
   fi
   quiet userdel -r "$ftp_user"
   remove_pkgs vsftpd nginx; autoclean
-  echo -e "${OK} Disinstallazione completata."
+  echo -e "${OK} Uninstallation complete."
 }
 
-# ---------- MENU -------------------------------------------------------------
+# ---------- MAIN MENU --------------------------------------------------------
 clear
 cat <<'BANNER'
 ╔══════════════════════════════════════════════════════╗
@@ -109,12 +110,12 @@ cat <<'BANNER'
 BANNER
 
 need_root
-PS3=$'\nScegli opzione → '
+PS3=$'\nSelect option → '
 select opt in "Install / Update" "Remove" "Exit"; do
   case $REPLY in
     1) install_stack; break;;
     2) uninstall_stack; break;;
     3) echo "Bye."; exit 0;;
-    *) echo "Scelta non valida.";;
+    *) echo "Invalid choice.";;
   esac
 done
