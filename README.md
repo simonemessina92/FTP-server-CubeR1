@@ -3,11 +3,9 @@ Use this command to install or remove an FTP server configured for Kiloview Cube
 
 
 
-🟢 Works on Ubuntu 20.04/22.04 – cloud or local VPS
+### 🖥️ Auto install
 
-📄 Saves configuration summary in /home/[user]/ftp/ftp_config_summary.txt
+Run this on any Ubuntu 20.04+ machine:
 
-❌ Includes full cleanup mode
-
-
-bash -i <(curl -sSL https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/FTP%2Bnginx-cloud)
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/FTP+nginx-cloud)
