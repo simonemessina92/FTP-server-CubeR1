@@ -1,114 +1,133 @@
 #!/bin/bash
 
-# ───────────────────────────────────────────────
-#   Kiloview FTP + Nginx auto-index helper
-#   Autore: Simone Messina / GitHub: simonemessina92
-# ───────────────────────────────────────────────
+# === Colors and Icons ===
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[1;34m'
+CYAN='\033[1;36m'
+NC='\033[0m'
 
-set -Eeuo pipefail
-trap 'echo -e "\n\033[1;31m[ERROR at line $LINENO]\033[0m (see /tmp/kilo-setup.log)" >&2' ERR
+print_header() {
+    clear
+    echo -e "${CYAN}============================================"
+    echo -e "🚀  ${GREEN}Kiloview FTP + NGINX Installer${NC} by Simone Messina"
+    echo -e "${CYAN}============================================${NC}\n"
+}
 
-log="/tmp/kilo-setup.log"; :> "$log"
-quiet()   { "$@" >> "$log" 2>&1; }
-spinner() { local p=$1 s='|/-\\' i=0; while kill -0 $p 2>/dev/null; do printf "\r[Working] %s " "${s:i++%4:1}"; sleep 0.1; done; printf "\r"; }
+print_header
 
-ask()       { local a; read -rp "$1 " a; echo "${a:-$2}"; }
-yn()        { local r; while true; do read -rp "$1 (y/n): " r; case $r in [Yy]*) return 0;; [Nn]*) return 1;; esac; done; }
+# === MENU ===
+echo -e "${YELLOW}Please select an option:${NC}"
+echo -e "1) 📦 Install FTP + NGINX"
+echo -e "2) 🗑️ Uninstall everything\n"
+read -p "Select option [1-2]: " CHOICE
 
-backup_dir="/root/BCKP"
+# === INSTALL ===
+if [[ "$CHOICE" == "1" ]]; then
+    read -p "👤 FTP Username: " FTP_USER
+    read -s -p "🔐 FTP Password: " FTP_PASSWORD
+    echo ""
+    read -p "🌐 Web port for file access (default 8080): " WEB_PORT
+    [[ -z "$WEB_PORT" ]] && WEB_PORT=8080
 
-install_pkgs() { quiet apt-get update && DEBIAN_FRONTEND=noninteractive quiet apt-get install -y -qq "$@"; }
-remove_pkgs()  { DEBIAN_FRONTEND=noninteractive quiet apt-get purge  -y -qq "$@"; }
-autoclean()    { quiet apt-get autoremove -y -qq --purge; }
+    echo -e "${BLUE}Installing packages...${NC}"
+    apt update -y && apt install -y vsftpd nginx
 
-install_stack() {
-  echo -e "\033[1;34m➜ Installing...\033[0m (logging to $log)"
+    echo -e "${BLUE}Creating FTP user and directory structure...${NC}"
+    adduser --disabled-password --gecos "" $FTP_USER
+    echo "$FTP_USER:$FTP_PASSWORD" | chpasswd
+    mkdir -p /home/$FTP_USER/ftp/uploads
+    chown nobody:nogroup /home/$FTP_USER/ftp
+    chmod a-w /home/$FTP_USER/ftp
+    chown $FTP_USER:$FTP_USER /home/$FTP_USER/ftp/uploads
 
-  local ftp_user ftp_pass ftp_port pasv_min pasv_max web_port
-  while true; do
-    read -rp $'FTP username: ' ftp_user
-    [[ $ftp_user =~ ^[a-z_][a-z0-9_-]*$ ]] && ! id "$ftp_user" &>/dev/null && break
-    echo -e "\033[1;31mInvalid or existing username.\033[0m"
-  done
-  echo -ne "FTP password: "; stty -echo; read -r ftp_pass; stty echo; echo
-  ftp_port=$(ask "FTP port (21):" 21)
-  web_port=$(ask "Web port (8080):" 8080)
-  if yn "Use default PASV 20000–20200?"; then pasv_min=20000; pasv_max=20200; else
-    pasv_min=$(ask "PASV min:" 21100); pasv_max=$(ask "PASV max:" 21110);
-  fi
-
-  install_pkgs vsftpd nginx & pid=$!; spinner $pid
-
-  quiet adduser --disabled-password --gecos "" "$ftp_user"
-  echo "$ftp_user:$ftp_pass" | chpasswd > /dev/null 2>&1
-  unset ftp_pass
-  local ftp_root="/home/$ftp_user"; chmod 755 "$ftp_root"
-
-  cat > /etc/vsftpd.conf <<VSFTP
+    echo -e "${BLUE}Configuring vsftpd...${NC}"
+    cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
+    cat <<EOL > /etc/vsftpd.conf
 listen=YES
-listen_port=$ftp_port
+listen_ipv6=NO
 anonymous_enable=NO
 local_enable=YES
 write_enable=YES
 chroot_local_user=YES
-allow_writeable_chroot=YES
 pasv_enable=YES
-pasv_min_port=$pasv_min
-pasv_max_port=$pasv_max
+pasv_min_port=20000
+pasv_max_port=20200
 user_sub_token=\$USER
-local_root=/home/\$USER
-utf8_filesystem=YES
-ssl_enable=NO
-VSFTP
-  quiet systemctl enable --now vsftpd
+local_root=/home/\$USER/ftp
+userlist_enable=NO
+EOL
+    systemctl restart vsftpd
 
-  cat > /etc/nginx/sites-available/default <<NGX
+    echo -e "${BLUE}Configuring NGINX for web access...${NC}"
+    mkdir -p /var/www/ftp
+    ln -s /home/$FTP_USER/ftp/uploads /var/www/ftp/uploads
+    cat <<EOF > /etc/nginx/sites-available/ftp
 server {
-    listen 0.0.0.0:${web_port} default_server;
-    listen [::]:${web_port} default_server;
-    server_name _;
-    root ${ftp_root};
-    index index.html index.htm;
+    listen $WEB_PORT default_server;
+    root /var/www/ftp;
     autoindex on;
+    location / {
+        autoindex_exact_size off;
+        autoindex_localtime on;
+    }
 }
-NGX
-  quiet systemctl enable --now nginx
+EOF
+    ln -sf /etc/nginx/sites-available/ftp /etc/nginx/sites-enabled/ftp
+    nginx -t && systemctl restart nginx
 
-  local ip=$(hostname -I | awk '{print $1}')
-  echo -e "\n\033[1;32m✅ Install complete\033[0m"
-  echo -e "FTP  : \033[1;36m${ftp_user} @ ftp://${ip}:${ftp_port}\033[0m"
-  echo -e "WEB  : \033[1;36mhttp://${ip}:${web_port}\033[0m  (auto-index)"
-}
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    echo -e "${GREEN}\n✅ Installation Complete!"
+    echo -e "📂 FTP Upload Path: /home/$FTP_USER/ftp/uploads  standard FTP port: 21"
+    echo -e "🌍 Web Access: http://$SERVER_IP:$WEB_PORT/uploads"
+    echo -e "🔑 User: $FTP_USER (password hidden)${NC}"
 
-uninstall_stack() {
-  local ftp_user
-  read -rp "FTP user to remove: " ftp_user
-  id "$ftp_user" &>/dev/null || { echo -e "\033[1;31mUser does not exist.\033[0m"; exit 1; }
-  if yn "Backup /home/$ftp_user before removal?"; then
-    mkdir -p "$backup_dir"; tar czf "$backup_dir/${ftp_user}_$(date +%F_%H-%M-%S).tgz" "/home/$ftp_user" >> "$log" 2>&1;
-  fi
-  quiet userdel -r "$ftp_user"
-  remove_pkgs vsftpd nginx; autoclean
-  echo -e "\033[1;33mUninstallation complete.\033[0m"
-}
+# === UNINSTALL ===
+elif [[ "$CHOICE" == "2" ]]; then
+    echo -e "${YELLOW}Scanning for FTP-configured users...${NC}"
+    USERS=$(ls /home | while read u; do [ -d "/home/$u/ftp/uploads" ] && echo $u; done)
+    if [ -z "$USERS" ]; then
+        echo -e "${RED}❌ No FTP-configured users found.${NC}"
+    else
+        echo -e "${GREEN}Found users:${NC} $USERS"
+        read -p "Remove ALL FTP users and configurations? (yes/no): " CONFIRM_ALL
+        if [[ "$CONFIRM_ALL" != "yes" ]]; then
+            echo -e "${RED}❌ Operation aborted.${NC}"
+            exit 1
+        fi
 
-clear
-cat <<'BANNER'
-╔══════════════════════════════════════════════════════╗
-║  🎬  Kiloview FTP + Nginx auto-index helper          ║
-╚══════════════════════════════════════════════════════╝
-BANNER
+        read -p "Backup video files before removal? (yes/no): " BACKUP
+        if [[ "$BACKUP" == "yes" ]]; then
+            BACKUP_DIR="/root/backupFTP_$(date +%Y%m%d_%H%M)"
+            mkdir -p "$BACKUP_DIR"
+            for u in $USERS; do
+                cp -r "/home/$u/ftp/uploads" "$BACKUP_DIR/$u-uploads"
+            done
+            echo -e "${GREEN}🔁 Backup saved to $BACKUP_DIR${NC}"
+        fi
 
-if [ -t 0 ]; then exec < /dev/tty; fi
+        for u in $USERS; do
+            deluser --remove-home $u
+            rm -f "/var/www/ftp/$u"
+            echo -e "${GREEN}🗑️ Removed user $u${NC}"
+        done
+    fi
 
-echo "1) Install / Update"
-echo "2) Remove"
-echo "3) Exit"
-read -rp "Select option → " opt
+    echo -e "${BLUE}Removing vsftpd and nginx...${NC}"
+    systemctl stop nginx
+    systemctl disable nginx
+    systemctl unmask nginx
+    apt purge -y nginx nginx-common nginx-core vsftpd
+    apt autoremove -y
+    rm -rf /etc/nginx /var/www/ftp
+    rm -f /etc/vsftpd.conf /etc/vsftpd.conf.bak
+    rm -f /etc/nginx/sites-enabled/ftp /etc/nginx/sites-available/ftp
+    systemctl restart nginx
 
-case "$opt" in
-  1) install_stack ;;
-  2) uninstall_stack ;;
-  3) echo "Bye." && exit 0 ;;
-  *) echo -e "\033[1;31mInvalid choice.\033[0m" && exit 1 ;;
-esac
+    echo -e "${GREEN}✅ Uninstallation complete.${NC}"
+
+else
+    echo -e "${RED}Invalid option. Exiting.${NC}"
+    exit 1
+fi
