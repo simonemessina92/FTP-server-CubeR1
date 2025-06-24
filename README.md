@@ -10,3 +10,4 @@ Run this on any Ubuntu 20.04+ machine:
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/FTP-server-CubeR1/main/FTP+nginx-cloud)
 
+
