@@ -31,8 +31,11 @@ if [[ "$CHOICE" == "1" ]]; then
     read -p "🌐 Web port for file access (default 8080): " WEB_PORT
     [[ -z "$WEB_PORT" ]] && WEB_PORT=8080
 
+    WEB_USER="$FTP_USER"
+    WEB_PASS="$FTP_PASSWORD"
+
     echo -e "${BLUE}Installing packages...${NC}"
-    apt update -y && apt install -y vsftpd nginx
+    apt update -y && apt install -y vsftpd nginx apache2-utils
 
     echo -e "${BLUE}Creating FTP user and directory structure...${NC}"
     adduser --disabled-password --gecos "" $FTP_USER
@@ -69,25 +72,33 @@ EOL
     echo -e "${BLUE}Configuring NGINX for web access...${NC}"
     mkdir -p /var/www/ftp
     ln -s /home/$FTP_USER/ftp/uploads /var/www/ftp/uploads
+
+    htpasswd -cb /etc/nginx/.htpasswd "$WEB_USER" "$WEB_PASS"
+
     cat <<EOF > /etc/nginx/sites-available/ftp
 server {
     listen $WEB_PORT default_server;
     root /var/www/ftp;
-    autoindex on;
+
     location / {
+        autoindex on;
         autoindex_exact_size off;
         autoindex_localtime on;
+
+        auth_basic "\ud83d\udd12 Protected Area";
+        auth_basic_user_file /etc/nginx/.htpasswd;
     }
 }
 EOF
+
     ln -sf /etc/nginx/sites-available/ftp /etc/nginx/sites-enabled/ftp
     nginx -t && systemctl restart nginx
 
     SERVER_IP=$(hostname -I | awk '{print $1}')
-    echo -e "${GREEN}\n✅ Installation Complete!"
+    echo -e "${GREEN}\n📅 Installation Complete!"
     echo -e "📂 FTP Upload Path: /home/$FTP_USER/ftp/uploads  standard FTP port: 21"
     echo -e "🌍 Web Access: http://$SERVER_IP:$WEB_PORT/uploads"
-    echo -e "🔑 User: $FTP_USER (password hidden)${NC}"
+    echo -e "👤 Web Auth: $WEB_USER (same as FTP)${NC}"
 
 # === UNINSTALL ===
 elif [[ "$CHOICE" == "2" ]]; then
@@ -124,9 +135,9 @@ elif [[ "$CHOICE" == "2" ]]; then
     systemctl stop nginx
     systemctl disable nginx
     systemctl unmask nginx
-    apt purge -y nginx nginx-common nginx-core vsftpd
+    apt purge -y nginx nginx-common nginx-core vsftpd apache2-utils
     apt autoremove -y
-    rm -rf /etc/nginx /var/www/ftp
+    rm -rf /etc/nginx /var/www/ftp /etc/nginx/.htpasswd
     rm -f /etc/vsftpd.conf /etc/vsftpd.conf.bak
     rm -f /etc/nginx/sites-enabled/ftp /etc/nginx/sites-available/ftp
     systemctl restart nginx
