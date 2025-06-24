@@ -1,145 +1,136 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# ============================================================================
+#  Script: setup_ftp_nginx.sh
+#  Autore: ChatGPT per Sem (Tecnico Broadcasting AVoIP)
+#  Scopo : Installare o disinstallare in modo interattivo un server FTP (vsftpd)
+#          e un web‑server (Nginx) su una VM Linux (Debian/Ubuntu‑like).
+#          • INSTALL: crea un utente FTP, imposta la password, configura vsftpd,
+#            installa Nginx e chiede la porta d'ascolto.
+#          • UNINSTALL: rimuove i pacchetti, cancella l'utente e (opzionale)
+#            effettua il backup dei file caricati in /root/BCKP.
+#  Uso   : eseguire come root → sudo ./setup_ftp_nginx.sh
+# ============================================================================
 
-# === Colors ===
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+set -euo pipefail
 
-echo -e "${GREEN}Kiloview FTP Pro Installer by Simone Messina${NC}"
-echo ""
-
-# === Main Menu ===
-echo -e "${YELLOW}What would you like to do?${NC}"
-echo "1) Install & configure FTP server"
-echo "2) Remove FTP server and users"
-echo "3) Create a new FTP user"
-read -p "Enter choice [1, 2 or 3]: " CHOICE
-
-show_summary() {
-    echo -e "${GREEN}\nFTP Settings for Kiloview Cube R1:${NC}"
-    echo -e "---------------------------------------------"
-    echo -e "Name:             MyFTPServer"
-    echo -e "FTP Host:         $SERVER_IP"
-    echo -e "Port:             21"
-    echo -e "Username:         $FTP_USER"
-    echo -e "Password:         (the password you chose)"
-    echo -e "Upload Directory: /uploads"
-    echo -e "---------------------------------------------"
-    echo -e "📂 Full server path created: /home/$FTP_USER/ftp/uploads"
-    echo -e "📄 Summary also saved to: $OUTPUT_FILE"
+# --- Funzioni di utilità ----------------------------------------------------
+need_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "[ERRORE] Devi eseguire questo script come root." >&2
+        exit 1
+    fi
 }
 
-# === INSTALL MODE ===
-if [[ "$CHOICE" == "1" ]]; then
-    read -p "Enter your desired FTP username: " FTP_USER
-    read -rsp "Enter your desired FTP password: " FTP_PASSWORD
-echo ""
-    echo -e "${RED}Kilolink Server Pro uses ports 30000–30200. Avoid using this range for passive FTP.${NC}"
-    read -p "Use default passive port range 20000–20200? (yes/no): " USE_DEFAULT
-    if [[ "$USE_DEFAULT" == "no" ]]; then
-        read -p "Enter Passive FTP port range START: " PASV_MIN_PORT
-        read -p "Enter Passive FTP port range END: " PASV_MAX_PORT
-    else
-        PASV_MIN_PORT=20000
-        PASV_MAX_PORT=20200
+prompt_yes_no() {
+    # $1 = domanda
+    local response
+    while true; do
+        read -rp "$1 (y/n): " response
+        case $response in
+            [Yy]*) return 0 ;;
+            [Nn]*) return 1 ;;
+            *) echo "Rispondi con 'y' o 'n'." ;;
+        esac
+    done
+}
+
+backup_folder="/root/BCKP"
+
+# --- INSTALLAZIONE ----------------------------------------------------------
+install_stack() {
+    echo "========== INSTALLAZIONE =========="
+    apt update
+    apt install -y vsftpd nginx
+
+    # --- Creazione utente FTP ---------------------------------------------
+    while true; do
+        read -rp "Nome nuovo utente FTP: " ftp_user
+        [[ -n $ftp_user ]] && break
+        echo "Il nome utente non può essere vuoto."
+    done
+
+    if id "$ftp_user" &>/dev/null; then
+        echo "[ERRORE] L'utente $ftp_user esiste già. Interrompo."
+        exit 1
     fi
-    apt update && apt install -y vsftpd
-    adduser --disabled-password --gecos "" $FTP_USER
-    echo "${FTP_USER}:${FTP_PASSWORD}" | chpasswd
-    mkdir -p /home/$FTP_USER/ftp/uploads
-    chown nobody:nogroup /home/$FTP_USER/ftp
-    chmod a-w /home/$FTP_USER/ftp
-    chown $FTP_USER:$FTP_USER /home/$FTP_USER/ftp/uploads
-    cp /etc/vsftpd.conf /etc/vsftpd.conf.bak
-    cat <<EOL > /etc/vsftpd.conf
+
+    read -rsp "Password per $ftp_user: " ftp_pass; echo
+    adduser --disabled-password --gecos "" "$ftp_user"
+    echo "$ftp_user:$ftp_pass" | chpasswd
+
+    # --- Configurazione vsftpd ---------------------------------------------
+    cp /etc/vsftpd.conf /etc/vsftpd.conf.bak.$(date +%F_%H-%M-%S)
+    cat >/etc/vsftpd.conf <<'VSFTP'
 listen=YES
-listen_ipv6=NO
+listen_port=21
 anonymous_enable=NO
 local_enable=YES
 write_enable=YES
 chroot_local_user=YES
+allow_writeable_chroot=YES
+utf8_filesystem=YES
 pasv_enable=YES
-pasv_min_port=$PASV_MIN_PORT
-pasv_max_port=$PASV_MAX_PORT
-user_sub_token=\$USER
-local_root=/home/\$USER/ftp
-userlist_enable=NO
-EOL
+pasv_min_port=21100
+pasv_max_port=21110
+user_sub_token=$USER
+local_root=/home/$USER
+ssl_enable=NO
+VSFTP
     systemctl restart vsftpd
-    SERVER_IP=$(hostname -I | awk '{print $1}')
-    OUTPUT_FILE="/home/$FTP_USER/ftp/ftp_config_summary.txt"
-    echo -e "FTP Settings for Kiloview Cube R1:\n" > $OUTPUT_FILE
-    echo -e "Name:             MyFTPServer" >> $OUTPUT_FILE
-    echo -e "FTP Host:         $SERVER_IP" >> $OUTPUT_FILE
-    echo -e "Port:             21" >> $OUTPUT_FILE
-    echo -e "Username:         $FTP_USER" >> $OUTPUT_FILE
-    echo -e "Password:         (the password you chose)" >> $OUTPUT_FILE
-    echo -e "Upload Directory: /uploads\n" >> $OUTPUT_FILE
-    echo -e "Full server path created: /home/$FTP_USER/ftp/uploads" >> $OUTPUT_FILE
-    echo -e "${GREEN}✅ FTP setup complete.${NC}"
-    show_summary
-    exit 0
 
-# === REMOVE MODE ===
-elif [[ "$CHOICE" == "2" ]]; then
-    echo -e "${YELLOW}Scanning for FTP-configured users...${NC}"
-    USERS=$(ls /home | while read u; do [ -d "/home/$u/ftp/uploads" ] && echo $u; done)
-    if [ -z "$USERS" ]; then
-        echo -e "${RED}❌ No FTP-configured users found.${NC}"
-        exit 0
-    fi
-    echo -e "${GREEN}✅ Found the following FTP-configured users:${NC}"
-    echo "$USERS"
-    read -p "Do you want to remove ALL of these users and their data? (yes/no): " CONFIRM_ALL
-    if [[ "$CONFIRM_ALL" != "yes" ]]; then
-        echo -e "${RED}⛔ Removal aborted by user.${NC}"
+    # --- Installazione & configurazione Nginx ------------------------------
+    read -rp "Porta HTTP per Nginx (default 80): " nginx_port
+    nginx_port=${nginx_port:-80}
+
+    sed -i.bak.$(date +%F_%H-%M-%S) \
+        -e "s/^\s*listen \([0-9]*\) default_server;/listen ${nginx_port} default_server;/" \
+        -e "s/^\s*listen \([0-9]*\) \[::\]:\1 default_server;/listen ${nginx_port} [::]:${nginx_port} default_server;/" \
+        /etc/nginx/sites-available/default
+
+    systemctl reload nginx
+
+    echo "[OK] Installazione completata."
+    echo "Puoi caricare i tuoi file in /home/$ftp_user e vederli su http://<IP>:$nginx_port/"
+}
+
+# --- DISINSTALLAZIONE -------------------------------------------------------
+uninstall_stack() {
+    echo "========== DISINSTALLAZIONE =========="
+    read -rp "Quale utente FTP vuoi rimuovere? " ftp_user
+
+    if ! id "$ftp_user" &>/dev/null; then
+        echo "[ERRORE] L'utente $ftp_user non esiste." >&2
         exit 1
     fi
-    read -p "Do you want to backup video files before deletion? (yes/no): " BACKUP
-    if [[ "$BACKUP" == "yes" ]]; then
-        BACKUP_DIR="/root/backupFTP_$(date +%Y%m%d_%H%M)"
-        mkdir -p "$BACKUP_DIR"
-        for u in $USERS; do
-            cp -r "/home/$u/ftp/uploads" "$BACKUP_DIR/$u-uploads"
-        done
-        echo -e "${GREEN}🔁 Backup saved to $BACKUP_DIR${NC}"
+
+    if prompt_yes_no "Vuoi fare il backup di /home/$ftp_user prima di cancellare?"; then
+        mkdir -p "$backup_folder"
+        tar czf "$backup_folder/${ftp_user}_backup_$(date +%F_%H-%M-%S).tar.gz" "/home/$ftp_user"
+        echo "Backup salvato in $backup_folder."
     fi
-    for u in $USERS; do
-        deluser --remove-home $u
-        echo -e "${GREEN}🗑️ Removed user $u${NC}"
-    done
-    apt remove -y vsftpd && apt autoremove -y
-    rm -f /etc/vsftpd.conf /etc/vsftpd.conf.bak
-    echo -e "${GREEN}✅ All users removed and FTP server uninstalled.${NC}"
-    exit 0
 
-# === CREATE NEW USER ===
-elif [[ "$CHOICE" == "3" ]]; then
-    read -p "Enter new FTP username: " FTP_USER
-    read -rsp "Enter new FTP password: " FTP_PASSWORD
-echo ""
-    adduser --disabled-password --gecos "" $FTP_USER
-    echo "${FTP_USER}:${FTP_PASSWORD}" | chpasswd
-    mkdir -p /home/$FTP_USER/ftp/uploads
-    chown nobody:nogroup /home/$FTP_USER/ftp
-    chmod a-w /home/$FTP_USER/ftp
-    chown $FTP_USER:$FTP_USER /home/$FTP_USER/ftp/uploads
-    SERVER_IP=$(hostname -I | awk '{print $1}')
-    OUTPUT_FILE="/home/$FTP_USER/ftp/ftp_config_summary.txt"
-    echo -e "FTP Settings for Kiloview Cube R1:\n" > $OUTPUT_FILE
-    echo -e "Name:             MyFTPServer" >> $OUTPUT_FILE
-    echo -e "FTP Host:         $SERVER_IP" >> $OUTPUT_FILE
-    echo -e "Port:             21" >> $OUTPUT_FILE
-    echo -e "Username:         $FTP_USER" >> $OUTPUT_FILE
-    echo -e "Password:         (the password you chose)" >> $OUTPUT_FILE
-    echo -e "Upload Directory: /uploads\n" >> $OUTPUT_FILE
-    echo -e "Full server path created: /home/$FTP_USER/ftp/uploads" >> $OUTPUT_FILE
-    echo -e "${GREEN}✅ New FTP user created. Summary saved to: $OUTPUT_FILE${NC}"
-    show_summary
-    exit 0
+    userdel -r "$ftp_user"
 
-else
-    echo -e "${RED}Invalid option. Exiting.${NC}"
-    exit 1
+    apt purge -y vsftpd nginx
+    apt autoremove -y --purge
+
+    echo "[OK] Disinstallazione completata."
+}
+
+# --- MAIN MENU -------------------------------------------------------------
+need_root
+
+echo "========================================="
+echo "  Script di Installazione/Disinstallazione"
+echo "========================================="
+echo "1) Installa FTP + Nginx"
+echo "2) Disinstalla FTP + Nginx"
+echo "3) Esci"
+
+read -rp "Selezione (1/2/3): " choice
+case $choice in
+    1) install_stack ;;
+    2) uninstall_stack ;;
+    3) echo "Uscita."; exit 0 ;;
+    *) echo "Scelta non valida."; exit 1 ;;
 fi
