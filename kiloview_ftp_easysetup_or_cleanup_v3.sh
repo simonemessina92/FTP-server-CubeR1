@@ -31,7 +31,10 @@ show_summary() {
 
 if [[ "$CHOICE" == "1" ]]; then
     read -p "FTP username : " FTP_USER
-    read -s -p "FTP password : " FTP_PASSWORD
+    echo -n "FTP password : "
+    stty -echo
+    read FTP_PASSWORD
+    stty echo
     echo ""
     read -p "Use default PASV 20000-20200? (y/n): " USE_DEFAULT
     if [[ "$USE_DEFAULT" == "n" ]]; then
