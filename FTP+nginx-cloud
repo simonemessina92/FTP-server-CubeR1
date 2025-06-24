@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  🎬  Kiloview FTP + Nginx Helper – Clean & Plain Version (Ubuntu 20.04)
+#  🎬  Kiloview FTP + Nginx Helper – Styled Version (Ubuntu 20.04)
 # =============================================================================
-#  ► No colors or ANSI codes to ensure clean output everywhere
-#  ► Password input hidden securely
-#  ► Minimal logging for simplicity
+#  ► Color-enhanced, emoji-based UI
+#  ► Still compatible with curl | bash from GitHub
 # =============================================================================
 set -Eeuo pipefail
-trap 'echo -e "\n[ERROR at line $LINENO]  (see /tmp/kilo-setup.log)" >&2' ERR
+trap 'echo -e "\n\033[1;31m[ERROR at line $LINENO]\033[0m  (see /tmp/kilo-setup.log)" >&2' ERR
 
 log="/tmp/kilo-setup.log"; :> "$log"
 quiet()   { "$@" >> "$log" 2>&1; }
@@ -23,13 +22,13 @@ remove_pkgs()  { DEBIAN_FRONTEND=noninteractive quiet apt-get purge  -y -qq "$@"
 autoclean()    { quiet apt-get autoremove -y -qq --purge; }
 
 install_stack() {
-  echo "Installing... (logging to $log)"
+  echo -e "\033[1;34m➜ Installing...\033[0m (logging to $log)"
 
   local ftp_user ftp_pass ftp_port pasv_min pasv_max web_port
   while true; do
-    read -rp "FTP username: " ftp_user
+    read -rp $'FTP username: ' ftp_user
     [[ $ftp_user =~ ^[a-z_][a-z0-9_-]*$ ]] && ! id "$ftp_user" &>/dev/null && break
-    echo "Invalid or existing username."
+    echo -e "\033[1;31mInvalid or existing username.\033[0m"
   done
   echo -ne "FTP password: "; stty -echo; read -r ftp_pass; stty echo; echo
   ftp_port=$(ask "FTP port (21):" 21)
@@ -75,35 +74,36 @@ NGX
   quiet systemctl enable --now nginx
 
   local ip=$(hostname -I | awk '{print $1}')
-  echo -e "\nInstall complete"
-  echo "FTP  : ${ftp_user} @ ftp://${ip}:${ftp_port}"
-  echo "WEB  : http://${ip}:${web_port}  (auto-index)"
+  echo -e "\n\033[1;32m✅ Install complete\033[0m"
+  echo -e "FTP  : \033[1;36m${ftp_user} @ ftp://${ip}:${ftp_port}\033[0m"
+  echo -e "WEB  : \033[1;36mhttp://${ip}:${web_port}\033[0m  (auto-index)"
 }
 
 uninstall_stack() {
   local ftp_user
   read -rp "FTP user to remove: " ftp_user
-  id "$ftp_user" &>/dev/null || { echo "User does not exist."; exit 1; }
+  id "$ftp_user" &>/dev/null || { echo -e "\033[1;31mUser does not exist.\033[0m"; exit 1; }
   if yn "Backup /home/$ftp_user before removal?"; then
     mkdir -p "$backup_dir"; tar czf "$backup_dir/${ftp_user}_$(date +%F_%H-%M-%S).tgz" "/home/$ftp_user" >> "$log" 2>&1;
   fi
   quiet userdel -r "$ftp_user"
   remove_pkgs vsftpd nginx; autoclean
-  echo "Uninstallation complete."
+  echo -e "\033[1;33mUninstallation complete.\033[0m"
 }
 
 clear
 cat <<'BANNER'
-Kiloview FTP + Nginx auto-index helper
-=======================================
+╔══════════════════════════════════════════════════════╗
+║  🎬  Kiloview FTP + Nginx auto-index helper          ║
+╚══════════════════════════════════════════════════════╝
 BANNER
 
-PS3=$'\nSelect option → '
+PS3=$'Select option → '
 select opt in "Install / Update" "Remove" "Exit"; do
   case $REPLY in
     1) install_stack; break;;
     2) uninstall_stack; break;;
     3) echo "Bye."; exit 0;;
-    *) echo "Invalid choice.";;
+    *) echo -e "\033[1;31mInvalid choice.\033[0m";;
   esac
 done
