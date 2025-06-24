@@ -33,7 +33,11 @@ show_summary() {
 # === INSTALL MODE ===
 if [[ "$CHOICE" == "1" ]]; then
     read -p "Enter your desired FTP username: " FTP_USER
-    read -s -p "Enter your desired FTP password: " FTP_PASSWORD\necho ""
+    echo -n "Enter your desired FTP password: "
+stty -echo
+read FTP_PASSWORD
+stty echo
+echo ""
     echo -e "${RED}Kilolink Server Pro uses ports 30000–30200. Avoid using this range for passive FTP.${NC}"
     read -p "Use default passive port range 20000–20200? (yes/no): " USE_DEFAULT
     if [[ "$USE_DEFAULT" == "no" ]]; then
@@ -116,7 +120,11 @@ elif [[ "$CHOICE" == "2" ]]; then
 # === CREATE NEW USER ===
 elif [[ "$CHOICE" == "3" ]]; then
     read -p "Enter new FTP username: " FTP_USER
-    read -s -p "Enter new FTP password: " FTP_PASSWORD\necho ""
+    echo -n "Enter new FTP password: "
+stty -echo
+read FTP_PASSWORD
+stty echo
+echo ""
     adduser --disabled-password --gecos "" $FTP_USER
     echo "${FTP_USER}:${FTP_PASSWORD}" | chpasswd
     mkdir -p /home/$FTP_USER/ftp/uploads
