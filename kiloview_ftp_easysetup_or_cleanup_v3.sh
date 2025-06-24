@@ -6,21 +6,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# --- Helper: silent password read ---
-read_hidden() {
-    # $1 = prompt, $2 = variable name
-    local prompt_msg="$1"
-    local __resultvar=$2
-    echo -n "$prompt_msg"
-    stty -echo
-    trap 'stty echo' EXIT
-    read $__resultvar
-    stty echo
-    trap - EXIT
-    echo ""
-}
-
-
 echo -e "${GREEN}Kiloview FTP Pro Installer by Simone Messina${NC}"
 echo ""
 
@@ -48,7 +33,8 @@ show_summary() {
 # === INSTALL MODE ===
 if [[ "$CHOICE" == "1" ]]; then
     read -p "Enter your desired FTP username: " FTP_USER
-    read_hidden "Enter your desired FTP password: " FTP_PASSWORD
+    read -rsp "Enter your desired FTP password: " FTP_PASSWORD
+echo ""
     echo -e "${RED}Kilolink Server Pro uses ports 30000–30200. Avoid using this range for passive FTP.${NC}"
     read -p "Use default passive port range 20000–20200? (yes/no): " USE_DEFAULT
     if [[ "$USE_DEFAULT" == "no" ]]; then
@@ -131,7 +117,8 @@ elif [[ "$CHOICE" == "2" ]]; then
 # === CREATE NEW USER ===
 elif [[ "$CHOICE" == "3" ]]; then
     read -p "Enter new FTP username: " FTP_USER
-    read_hidden "Enter new FTP password: " FTP_PASSWORD
+    read -rsp "Enter new FTP password: " FTP_PASSWORD
+echo ""
     adduser --disabled-password --gecos "" $FTP_USER
     echo "${FTP_USER}:${FTP_PASSWORD}" | chpasswd
     mkdir -p /home/$FTP_USER/ftp/uploads
