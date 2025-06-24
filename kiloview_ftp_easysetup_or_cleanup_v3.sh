@@ -6,20 +6,23 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}Kiloview FTP Pro Installer by Simone Messina${NC}"
-echo ""
-
-
+# --- Helper: silent password read ---
 read_hidden() {
-    prompt="$1"
-    echo -n "$prompt"
+    # $1 = prompt, $2 = variable name
+    local prompt_msg="$1"
+    local __resultvar=$2
+    echo -n "$prompt_msg"
     stty -echo
     trap 'stty echo' EXIT
-    read "$2"
+    read $__resultvar
     stty echo
     trap - EXIT
     echo ""
 }
+
+
+echo -e "${GREEN}Kiloview FTP Pro Installer by Simone Messina${NC}"
+echo ""
 
 # === Main Menu ===
 echo -e "${YELLOW}What would you like to do?${NC}"
